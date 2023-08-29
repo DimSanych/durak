@@ -62,14 +62,7 @@ rank_to_emoji = {
     "queen": "👸🏻",
     "king": "🤴🏻"
 }
-# Добавляет или убирает эмодзи ✅ из текста карты.
-def toggle_card_selection(card_text):
-    if card_text.startswith("✅"):
-        print(f"Original card text: {card_text}")
-        return card_text[2:]  # Убираем эмодзи, если карта уже выделена
-    else:
-        print(f"Selecting card: {card_text}")  # Добавлено для отладки
-        return f"✅ {card_text}"  # Добавляем эмодзи, если карта не выделена
+
 
 #игровая колода
 def create_deck(deck_type="36", number_of_decks=1):
@@ -196,6 +189,7 @@ def generate_game_table(chat_id, deck, trump_suit):
     
     return table
 
+#Выводим игровой стол
 async def update_game_table_message(update: Update, context: CallbackContext, chat_id, deck, trump_suit):
     # Генерируем игровой стол
     table_message = generate_game_table(chat_id, deck, trump_suit)
@@ -295,10 +289,6 @@ async def go(update: Update, context: CallbackContext) -> None:
     players_order = determine_first_player(players[chat_id], trump_suit)
     random.shuffle(players_order[1:])  # Перемешиваем порядок остальных игроков
 
-    # Сообщение в группе о порядке хода
-    #order_message = "\n".join([player['name'] for player in players_order])
-    #await update.message.reply_text(f"Первым ходит {players_order[0]['name']}. Порядок хода:\n{order_message}")
-
     # Устанавливаем статусы
     players_order[0]['status'] = 'Attacking'
     players_order[1]['status'] = 'Defending'
@@ -322,53 +312,7 @@ async def stop(update: Update, context: CallbackContext) -> None:
 
 # Игровой процесс
 
-# Обработка нажатия на кнопки меню
-async def callback_query_handler(update, context):
-    print("Callback query handler started")
-    query = update.callback_query
-    query_data = query.data
 
-    if query_data.startswith("card_"):
-        # Это кнопка с картой
-        card_text = query_data[5:]  # Убираем префикс "card_"
-        updated_card_text = toggle_card_selection(card_text)
-        print(f"Сейчас карта {updated_card_text}")
-        
-        # Обновляем клавиатуру
-        current_keyboard = query.message.reply_markup.inline_keyboard
-        updated_keyboard = update_keyboard_with_selected_card(current_keyboard, card_text, updated_card_text)
-        
-        await query.edit_message_reply_markup(reply_markup=updated_keyboard)
-        await asyncio.sleep(1)
-        print("Callback query handler ended")
-
-
-    elif query_data.startswith("action_"):
-        # Это кнопка действия
-        action = query_data[7:]  # Убираем префикс "action_"
-        # Здесь вы можете обработать действие, например, атаку, защиту и т.д.
-        # ... ваш код для обработки действия ...
-
-    else:
-        # Неизвестный тип кнопки
-        await query.answer("Неизвестное действие.")
-
-    logger.debug("Callback query handler ended")    
-
-# Обновляет клавиатуру, заменяя кнопку с card_text на updated_card_text.
-async def update_keyboard_with_selected_card(current_keyboard, card_text, updated_card_text):
-    print(f"Updating keyboard: {card_text} -> {updated_card_text}")  # Добавлено для отладки
-    new_keyboard = []
-    for row in current_keyboard:
-        new_row = []
-        for button in row:
-            if button.text == card_text:
-                new_row.append(InlineKeyboardButton(updated_card_text, callback_data=f"card_{updated_card_text}"))
-            else:
-                new_row.append(button)
-        new_keyboard.append(new_row)
-    
-    return InlineKeyboardMarkup(new_keyboard)
 
 
 
@@ -385,9 +329,7 @@ def main() -> None:
     application.add_handler(CommandHandler('rules', rules))
     application.add_handler(CommandHandler('go', go))
     application.add_handler(CommandHandler('stop', stop))
-    application.add_handler(CommandHandler('list', list_participants))
-    application.add_handler(CallbackQueryHandler(callback_query_handler))
-   
+    application.add_handler(CommandHandler('list', list_participants))   
 
     
 

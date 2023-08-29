@@ -91,7 +91,7 @@ def deal_cards(players, deck):
         player['hand'] = []
 
         # Раздаем каждому игроку по 6 карт
-        for _ in range(4):
+        for _ in range(6):
             card = deck.pop()
             player['hand'].append(card)
 
@@ -131,7 +131,7 @@ def generate_cards_menu(player_hand):
         card_emoji = suit_to_emoji[card['suit']] + rank_to_emoji[card['rank']]
         button = InlineKeyboardButton(card_emoji, callback_data=f"card_{card['suit']}-{card['rank']}")
         row.append(button)
-        if len(row) == 6:  # После каждых 6 карт начинаем новый ряд
+        if len(row) == 4:  # После каждых 6 карт начинаем новый ряд
             keyboard.append(row)
             row = []
     if row:  # Добавляем оставшиеся карты, если их меньше 6
@@ -164,7 +164,7 @@ def generate_actions_menu(player_status):
 
 
 # Функция для создания текста игрового стола
-def generate_game_table(chat_id, deck, trump_suit):
+def generate_game_table(chat_id, deck, trump_suit, table_cards):
     # Получаем текущий порядок хода
     current_order = players[chat_id]
     
@@ -186,13 +186,15 @@ def generate_game_table(chat_id, deck, trump_suit):
     
     # Здесь можно добавить информацию о картах на столе, если они есть
     # (например, если игроки уже начали ходить)
+    table += "\n\nНа столе:\n"
+    table += " ".join([f"{card['suit']}{card['rank']}" for card in table_cards])
     
     return table
 
 #Выводим игровой стол
-async def update_game_table_message(update: Update, context: CallbackContext, chat_id, deck, trump_suit):
+async def update_game_table_message(update: Update, context: CallbackContext, chat_id, deck, trump_suit, table_cards):
     # Генерируем игровой стол
-    table_message = generate_game_table(chat_id, deck, trump_suit)
+    table_message = generate_game_table(chat_id, deck, trump_suit, table_cards)
     
     # Отправляем или редактируем сообщение с игровым столом
     # Здесь мы предполагаем, что у вас уже есть переменная для хранения ID сообщения с игровым столом.
@@ -206,9 +208,9 @@ async def update_game_table_message(update: Update, context: CallbackContext, ch
 async def process_turn(update: Update, context: CallbackContext, chat_id, deck, trump_suit, action=None):
     # Получаем текущий порядок хода
     current_order = players[chat_id]
-    
+    table_cards = []
     # Обновляем игровой стол
-    await update_game_table_message(update, context, chat_id, deck, trump_suit)
+    await update_game_table_message(update, context, chat_id, deck, trump_suit, table_cards)
     
     
     # Передаем ход следующему игроку
@@ -296,11 +298,63 @@ async def go(update: Update, context: CallbackContext) -> None:
         player['status'] = 'Idle'
     #Обновляем статус игроков
     players[chat_id] = players_order
-
-    # Отправка карт игрокам
+    
+    # Отправка карт игрокам и определение порядка хода
     await send_cards_to_players(players[chat_id], context)
-
     await process_turn(update, context, chat_id, deck, trump_suit)
+
+    # Запуск начала раунда
+    start_round(players_order, deck)
+
+def start_round(players_order, deck):
+    # Дополнительная раздача карт, если на руке меньше 6
+    for player in players_order:
+        while len(player['hand']) < 6 and deck:
+            player['hand'].append(deck.pop())
+    
+    # Устанавливаем статусы
+    players_order[0]['status'] = 'Attacking'
+    players_order[1]['status'] = 'Defending'
+    for player in players_order[2:]:
+        player['status'] = 'Idle'
+
+#Проверка карт
+def check_cards_same_value(selected_cards):
+    first_card_value = selected_cards[0]['rank']
+    return all(card['rank'] == first_card_value for card in selected_cards)
+
+async def handle_attack(update: Update, context: CallbackContext, chat_id, selected_cards, table_cards, deck, trump_suit):
+    attacking_player = next(player for player in players[chat_id] if player['status'] == 'Attacking')
+    
+    # Проверяем, что выбранные карты есть на руке у атакующего игрока и имеют одно значение
+    if all(card in attacking_player['hand'] for card in selected_cards) and check_cards_same_value(selected_cards):
+        # Выполняем атаку
+        for card in selected_cards:
+            attacking_player['hand'].remove(card)
+            table_cards.append(card)  # Добавляем карты на стол
+        
+        # Обновляем игровой стол
+        await update_game_table_message(update, context, chat_id, deck, trump_suit, table_cards)
+
+        
+        await update.message.reply_text(f"Игрок {attacking_player['name']} атакует картами {selected_cards}")
+    else:
+        await update.message.reply_text("Вы не можете атаковать этими картами.")
+
+
+
+
+
+# Обновление статусов и конец раунда
+def end_round(players_order, successful_defense):
+    if successful_defense:
+        # Перемещаем атакующего игрока в конец списка
+        players_order.append(players_order.pop(0))
+    else:
+        # Перемещаем защищающегося игрока в конец списка
+        players_order.append(players_order.pop(1))
+    # ... (обновление статусов, и т.д.)
+
 
 
 # Команда прекращения игры
@@ -310,7 +364,42 @@ async def stop(update: Update, context: CallbackContext) -> None:
 
 
 
-# Игровой процесс
+async def callback_query_handler(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data.startswith('card_'):
+        # Получаем текущую клавиатуру
+        current_keyboard = query.message.reply_markup.inline_keyboard
+
+        # Создаем новую клавиатуру, изменяя текст нужной кнопки
+        new_keyboard = []
+        for row in current_keyboard:
+            new_row = []
+            for button in row:
+                if button.callback_data == query.data:
+                    new_text = toggle_card_selection(button.text)
+                    new_button = InlineKeyboardButton(new_text, callback_data=button.callback_data)
+                else:
+                    new_button = button
+                new_row.append(new_button)
+            new_keyboard.append(new_row)
+
+        # Обновляем сообщение с новой клавиатурой
+        reply_markup = InlineKeyboardMarkup(new_keyboard)
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
+
+# Добавляет или убирает эмодзи ✅ из текста карты.
+def toggle_card_selection(card_text):
+    if card_text.startswith("✅"):
+        print(f"Original card text: {card_text}")
+        return card_text[2:]  # Убираем эмодзи, если карта уже выделена
+    else:
+        print(f"Selecting card: {card_text}")  # Добавлено для отладки
+        return f"✅ {card_text}"  # Добавляем эмодзи, если карта не выделена
+
+
+
 
 
 
@@ -330,7 +419,7 @@ def main() -> None:
     application.add_handler(CommandHandler('go', go))
     application.add_handler(CommandHandler('stop', stop))
     application.add_handler(CommandHandler('list', list_participants))   
-
+    application.add_handler(CallbackQueryHandler(callback_query_handler))
     
 
 

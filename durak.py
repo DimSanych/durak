@@ -4,6 +4,13 @@ from telegram.ext import CallbackContext
 import random
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
+import logging
+logging.basicConfig(level=logging.ERROR)  # Глобальный уровень логирования
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Уровень логирования только для вашего логгера
+import asyncio
+
+
 
 
 #Управление ботом
@@ -55,6 +62,14 @@ rank_to_emoji = {
     "queen": "👸🏻",
     "king": "🤴🏻"
 }
+# Добавляет или убирает эмодзи ✅ из текста карты.
+def toggle_card_selection(card_text):
+    if card_text.startswith("✅"):
+        print(f"Original card text: {card_text}")
+        return card_text[2:]  # Убираем эмодзи, если карта уже выделена
+    else:
+        print(f"Selecting card: {card_text}")  # Добавлено для отладки
+        return f"✅ {card_text}"  # Добавляем эмодзи, если карта не выделена
 
 #игровая колода
 def create_deck(deck_type="36", number_of_decks=1):
@@ -83,7 +98,7 @@ def deal_cards(players, deck):
         player['hand'] = []
 
         # Раздаем каждому игроку по 6 карт
-        for _ in range(6):
+        for _ in range(4):
             card = deck.pop()
             player['hand'].append(card)
 
@@ -121,7 +136,7 @@ def generate_cards_menu(player_hand):
     row = []
     for card in player_hand:
         card_emoji = suit_to_emoji[card['suit']] + rank_to_emoji[card['rank']]
-        button = InlineKeyboardButton(card_emoji, callback_data=f"{card['suit']}-{card['rank']}")
+        button = InlineKeyboardButton(card_emoji, callback_data=f"card_{card['suit']}-{card['rank']}")
         row.append(button)
         if len(row) == 6:  # После каждых 6 карт начинаем новый ряд
             keyboard.append(row)
@@ -151,22 +166,6 @@ def generate_actions_menu(player_status):
     
     keyboard = [buttons]  # Теперь все кнопки действий находятся в одном ряду
     return InlineKeyboardMarkup(keyboard)
-
-
-
-#Колбэк для кнопок действий
-def callback_query_handler(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query_data = query.data
-
-    # Здесь мы будем обрабатывать различные callback_data, например:
-    if query_data == "make_move":
-        # Логика для действия "Походить"
-        pass
-    # и так далее для других действий...
-
-    # Не забудьте ответить на callback_query, чтобы у пользователя исчезла "часиковая" анимация после нажатия на кнопку
-    query.answer()
 
 
 
@@ -263,6 +262,15 @@ async def join_game(update: Update, context: CallbackContext) -> None:
 
     await update.message.reply_text(f"{user.first_name} присоединился к игре!")
 
+#Просмотр списка игроков
+async def list_participants(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    if chat_id not in players or not players[chat_id]:
+        await update.message.reply_text("В игре пока нет участников.")
+        return
+
+    players_list = "\n".join([player['name'] for player in players[chat_id]])
+    await update.message.reply_text(f"Участники игры:\n{players_list}")
 
 #Запуск игры
 async def go(update: Update, context: CallbackContext) -> None:
@@ -305,25 +313,66 @@ async def go(update: Update, context: CallbackContext) -> None:
     await process_turn(update, context, chat_id, deck, trump_suit)
 
 
- 
-
-#Команда прекращения игры
+# Команда прекращения игры
 async def stop(update: Update, context: CallbackContext) -> None:
     players.clear()
     await update.message.reply_text("Игра завершена!")
 
-#Просмотр списка игроков
-async def list_participants(update: Update, context: CallbackContext) -> None:
-    chat_id = update.message.chat_id
-    if chat_id not in players or not players[chat_id]:
-        await update.message.reply_text("В игре пока нет участников.")
-        return
-
-    players_list = "\n".join([player['name'] for player in players[chat_id]])
-    await update.message.reply_text(f"Участники игры:\n{players_list}")
 
 
+# Игровой процесс
 
+# Обработка нажатия на кнопки меню
+async def callback_query_handler(update, context):
+    print("Callback query handler started")
+    query = update.callback_query
+    query_data = query.data
+
+    if query_data.startswith("card_"):
+        # Это кнопка с картой
+        card_text = query_data[5:]  # Убираем префикс "card_"
+        updated_card_text = toggle_card_selection(card_text)
+        print(f"Сейчас карта {updated_card_text}")
+        
+        # Обновляем клавиатуру
+        current_keyboard = query.message.reply_markup.inline_keyboard
+        updated_keyboard = update_keyboard_with_selected_card(current_keyboard, card_text, updated_card_text)
+        
+        await query.edit_message_reply_markup(reply_markup=updated_keyboard)
+        await asyncio.sleep(1)
+        print("Callback query handler ended")
+
+
+    elif query_data.startswith("action_"):
+        # Это кнопка действия
+        action = query_data[7:]  # Убираем префикс "action_"
+        # Здесь вы можете обработать действие, например, атаку, защиту и т.д.
+        # ... ваш код для обработки действия ...
+
+    else:
+        # Неизвестный тип кнопки
+        await query.answer("Неизвестное действие.")
+
+    logger.debug("Callback query handler ended")    
+
+# Обновляет клавиатуру, заменяя кнопку с card_text на updated_card_text.
+async def update_keyboard_with_selected_card(current_keyboard, card_text, updated_card_text):
+    print(f"Updating keyboard: {card_text} -> {updated_card_text}")  # Добавлено для отладки
+    new_keyboard = []
+    for row in current_keyboard:
+        new_row = []
+        for button in row:
+            if button.text == card_text:
+                new_row.append(InlineKeyboardButton(updated_card_text, callback_data=f"card_{updated_card_text}"))
+            else:
+                new_row.append(button)
+        new_keyboard.append(new_row)
+    
+    return InlineKeyboardMarkup(new_keyboard)
+
+
+
+# Запуск бота
 
 def main() -> None:
     application = Application.builder().token('6189771635:AAHEZ83SLCJ8VqBwF6aF3OtLcAHU7jcmwUc').build()
@@ -338,6 +387,9 @@ def main() -> None:
     application.add_handler(CommandHandler('stop', stop))
     application.add_handler(CommandHandler('list', list_participants))
     application.add_handler(CallbackQueryHandler(callback_query_handler))
+   
+
+    
 
 
 

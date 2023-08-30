@@ -210,6 +210,12 @@ async def process_turn(update: Update, context: CallbackContext, chat_id, deck, 
     # Получаем текущий порядок хода
     current_order = players[chat_id]
     table_cards = []
+
+    # Сохраняем данные в context.user_data
+    context.user_data['table_cards'] = table_cards
+    context.user_data['deck'] = deck
+    context.user_data['trump_suit'] = trump_suit
+    #print(table_cards, trump_suit, deck)
     # Обновляем игровой стол
     await update_game_table_message(update, context, chat_id, deck, trump_suit, table_cards)
     
@@ -299,6 +305,7 @@ async def go(update: Update, context: CallbackContext) -> None:
         player['status'] = 'Idle'
     #Обновляем статус игроков
     players[chat_id] = players_order
+    print(players[chat_id])
     
     # Отправка карт игрокам и определение порядка хода
     await send_cards_to_players(players[chat_id], context)
@@ -325,10 +332,9 @@ def check_cards_same_value(selected_cards):
     return all(card['rank'] == first_card_value for card in selected_cards)
 
 async def handle_attack(update: Update, context: CallbackContext, chat_id, selected_cards, table_cards, deck, trump_suit):
-    if chat_id not in players:
-        await update.message.reply_text("Игра еще не началась. Используйте /start или /go для начала.")
-        return
 
+    print(f"Перед атакой получаем данные игроков {players[chat_id]}")
+    
     attacking_player = next((player for player in players[chat_id] if player['status'] == 'Attacking'), None)
 
     
@@ -380,7 +386,7 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
     query = update.callback_query
     await query.answer()
     query_data = query.data
-    chat_id = query.message.chat_id
+    user_id = query.message.chat_id
 
     if query.data.startswith('card_'):
         # Получаем текущую клавиатуру
@@ -388,6 +394,7 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
 
         # Создаем новую клавиатуру, изменяя текст нужной кнопки
         new_keyboard = []
+        selected_cards = []
         for row in current_keyboard:
             new_row = []
             for button in row:
@@ -396,17 +403,25 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
                     new_button = InlineKeyboardButton(new_text, callback_data=button.callback_data)
                 else:
                     new_button = button
+                
+                # Проверяем, содержит ли текст кнопки эмодзи "✅"
+                if "✅" in new_button.text:
+                    card_data = new_button.callback_data.split("_")[1]  # Получаем данные карты из callback_data
+                    selected_cards.append(card_data)  # Добавляем карту в список выбранных
+
                 new_row.append(new_button)
             new_keyboard.append(new_row)
-
         # Обновляем сообщение с новой клавиатурой
         reply_markup = InlineKeyboardMarkup(new_keyboard)
         await query.edit_message_reply_markup(reply_markup=reply_markup)
+        
+        # Сохраняем список выбранных карт в context.user_data
+        context.user_data['selected_cards'] = selected_cards
 
     elif query_data == "action_attack":
         # Здесь вы можете получить выбранные карты. Это зависит от того, как вы их сохраняете.
         # Предположим, что selected_cards хранится в context.user_data
-        print(f"Проверяем работу функции")
+        #print(f"Проверяем работу функции")
         selected_cards = context.user_data.get('selected_cards', [])
         print(selected_cards)
         
@@ -414,10 +429,10 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
         table_cards = context.user_data.get('table_cards', [])
         deck = context.user_data.get('deck', [])
         trump_suit = context.user_data.get('trump_suit', None)
-        print(f"получаем всякое {table_cards} {deck} {trump_suit}")
+        #print(f"получаем всякое {table_cards} {deck} {trump_suit}")
         
         # Вызываем функцию атаки
-        await handle_attack(update, context, chat_id, selected_cards, table_cards, deck, trump_suit)
+        await handle_attack(update, context, user_id, selected_cards, table_cards, deck, trump_suit)
 
 
 

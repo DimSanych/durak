@@ -22,6 +22,7 @@ async def help_command(update, context):
 
 async def play(update, context):
     await join_game(update, context)
+
     # Здесь будет логика начала игры
     pass
 
@@ -324,8 +325,17 @@ def check_cards_same_value(selected_cards):
     return all(card['rank'] == first_card_value for card in selected_cards)
 
 async def handle_attack(update: Update, context: CallbackContext, chat_id, selected_cards, table_cards, deck, trump_suit):
-    attacking_player = next(player for player in players[chat_id] if player['status'] == 'Attacking')
+    if chat_id not in players:
+        await update.message.reply_text("Игра еще не началась. Используйте /start или /go для начала.")
+        return
+
+    attacking_player = next((player for player in players[chat_id] if player['status'] == 'Attacking'), None)
+
     
+    if attacking_player is None:
+        await update.message.reply_text("Нет атакующего игрока.")
+        return
+
     # Проверяем, что выбранные карты есть на руке у атакующего игрока и имеют одно значение
     if all(card in attacking_player['hand'] for card in selected_cards) and check_cards_same_value(selected_cards):
         # Выполняем атаку
@@ -335,11 +345,13 @@ async def handle_attack(update: Update, context: CallbackContext, chat_id, selec
         
         # Обновляем игровой стол
         await update_game_table_message(update, context, chat_id, deck, trump_suit, table_cards)
-
         
         await update.message.reply_text(f"Игрок {attacking_player['name']} атакует картами {selected_cards}")
     else:
         await update.message.reply_text("Вы не можете атаковать этими картами.")
+
+
+
 
 
 
@@ -367,6 +379,8 @@ async def stop(update: Update, context: CallbackContext) -> None:
 async def callback_query_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
+    query_data = query.data
+    chat_id = query.message.chat_id
 
     if query.data.startswith('card_'):
         # Получаем текущую клавиатуру
@@ -388,6 +402,30 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
         # Обновляем сообщение с новой клавиатурой
         reply_markup = InlineKeyboardMarkup(new_keyboard)
         await query.edit_message_reply_markup(reply_markup=reply_markup)
+
+    elif query_data == "action_attack":
+        # Здесь вы можете получить выбранные карты. Это зависит от того, как вы их сохраняете.
+        # Предположим, что selected_cards хранится в context.user_data
+        print(f"Проверяем работу функции")
+        selected_cards = context.user_data.get('selected_cards', [])
+        print(selected_cards)
+        
+        # Получаем остальные необходимые данные
+        table_cards = context.user_data.get('table_cards', [])
+        deck = context.user_data.get('deck', [])
+        trump_suit = context.user_data.get('trump_suit', None)
+        print(f"получаем всякое {table_cards} {deck} {trump_suit}")
+        
+        # Вызываем функцию атаки
+        await handle_attack(update, context, chat_id, selected_cards, table_cards, deck, trump_suit)
+
+
+
+
+
+
+
+
 
 # Добавляет или убирает эмодзи ✅ из текста карты.
 def toggle_card_selection(card_text):

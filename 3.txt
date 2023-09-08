@@ -1,0 +1,104 @@
+#Просмотр списка игроков
+async def list_participants(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    if chat_id not in players or not players[chat_id]:
+        await update.message.reply_text("В игре пока нет участников.")
+        return
+
+    players_list = "\n".join([player['name'] for player in players[chat_id]])
+    await update.message.reply_text(f"Участники игры:\n{players_list}")
+
+#Запуск игры
+async def go(update: Update, context: CallbackContext) -> None:
+    table_cards = []
+    context.user_data['group_chat_id'] = update.message.chat_id
+    chat_id = update.message.chat_id
+
+    if chat_id not in players:
+        await update.message.reply_text("Игра еще не началась!")
+        return
+
+    if len(players[chat_id]) < 2:
+        await update.message.reply_text("Нельзя начать игру в одиночку!")
+        return
+    
+    # Создаем колоду, перетасовываем и раздаем карты
+    deck = shuffle_deck(create_deck("36"))  # или "52" в зависимости от выбранного типа колоды
+    players[chat_id], deck = deal_cards(players[chat_id], deck)
+    
+    # Определение козыря
+    trump_suit = determine_trump(deck)
+
+    # Определение игрока с наименьшим козырем и порядка хода
+    players_order = determine_first_player(players[chat_id], trump_suit)
+    random.shuffle(players_order[1:])  # Перемешиваем порядок остальных игроков
+
+    # Устанавливаем статусы
+    players_order[0]['status'] = 'Attacking'
+    players_order[1]['status'] = 'Defending'
+    for player in players_order[2:]:
+        player['status'] = 'Idle'
+    #Обновляем статус игроков
+    players[chat_id] = players_order
+    # print(players[chat_id])
+    
+    # Отправка карт игрокам и определение порядка хода
+    await send_cards_to_players(players[chat_id], context)
+    await update_game_table_message(update, context, chat_id, deck, trump_suit, table_cards)
+
+    # Запуск начала раунда
+
+
+def start_round(players_order, deck):
+    # Дополнительная раздача карт, если на руке меньше 6
+    for player in players_order:
+        while len(player['hand']) < 6 and deck:
+            player['hand'].append(deck.pop())
+    
+    # Устанавливаем статусы
+    players_order[0]['status'] = 'Attacking'
+    players_order[1]['status'] = 'Defending'
+    for player in players_order[2:]:
+        player['status'] = 'Idle'
+
+# Обновление статусов и конец раунда
+def end_round(players_order, successful_defense):
+    if successful_defense:
+        # Перемещаем атакующего игрока в конец списка
+        players_order.append(players_order.pop(0))
+    else:
+        # Перемещаем защищающегося игрока в конец списка
+        players_order.append(players_order.pop(1))
+    # ... (обновление статусов, и т.д.)
+
+
+
+# Команда прекращения игры
+async def stop(update: Update, context: CallbackContext) -> None:
+    players.clear()
+    await update.message.reply_text("Игра завершена!")
+
+async def handle_attack(update: Update, context: CallbackContext, chat_id, selected_cards, table_cards, deck, trump_suit):
+    
+    print("Debug: Inside handle_attack")  # Отладочный вывод
+    
+    
+    
+    print(f"Debug: Selected cards before extending table_cards: {selected_cards}")  # Отладочный вывод
+    print(f"Debug: Table cards before extending: {table_cards}")  # Отладочный вывод
+    
+    # Добавляем выбранные карты на стол
+    table_cards.extend(selected_cards)
+
+    print(f"Debug: Table cards after extending: {table_cards}")  # Отладочный вывод
+
+     # Сохраняем обновленный список карт на столе в context.user_data
+    context.user_data['table_cards'] = table_cards
+    
+    # Обновляем игровой стол
+    group_chat_id = context.user_data.get('group_chat_id', None)
+
+    await update_game_table_message(update, context, group_chat_id, deck, trump_suit, table_cards)
+
+    # Отправляем сообщение, что атака успешно выполнена
+    await update.callback_query.message.reply_text("Атака выполнена. Ход переходит к следующему игроку.")

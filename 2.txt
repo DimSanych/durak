@@ -1,0 +1,143 @@
+# Отправка карт игрокам
+async def send_cards_to_players(players_list, context: CallbackContext):
+    for player in players_list:
+        hand_emoji = " ".join([suit_to_emoji[card['suit']] + rank_to_emoji[card['rank']] for card in player['hand']])
+        
+        # Генерируем меню с картами
+        cards_menu = generate_cards_menu(player['hand'])
+        
+        # Генерируем меню действий
+        actions_menu = generate_actions_menu(player['status'])
+        
+        # Объединяем два меню в одно
+        combined_menu = cards_menu.inline_keyboard + actions_menu.inline_keyboard
+        
+        # Отправляем сообщение с объединенным меню
+        await context.bot.send_message(chat_id=player['id'], text=f"Твои карты: {hand_emoji}", reply_markup=InlineKeyboardMarkup(combined_menu))
+
+
+
+#Меню карт игрока
+def generate_cards_menu(player_hand):
+    keyboard = []
+    row = []
+    for card in player_hand:
+        card_emoji = suit_to_emoji[card['suit']] + rank_to_emoji[card['rank']]
+        button = InlineKeyboardButton(card_emoji, callback_data=f"card_{card['suit']}-{card['rank']}")
+        row.append(button)
+        if len(row) == 4:  # После каждых 6 карт начинаем новый ряд
+            keyboard.append(row)
+            row = []
+    if row:  # Добавляем оставшиеся карты, если их меньше 6
+        keyboard.append(row)
+    return InlineKeyboardMarkup(keyboard)
+
+
+
+#Меню действий у игрока
+def generate_actions_menu(player_status):
+    if player_status == "Attacking":
+        buttons = [
+            InlineKeyboardButton("Атаковать", callback_data="action_attack")
+        ]
+    elif player_status == "Defending":
+        buttons = [
+            InlineKeyboardButton("Отбиться", callback_data="action_defend"),
+            InlineKeyboardButton("Взять", callback_data="action_take"),
+            InlineKeyboardButton("Перевести", callback_data="action_transfer")
+        ]
+    else:  # Idle
+        buttons = [
+            InlineKeyboardButton("Подкинуть", callback_data="action_throw_in")
+        ]
+    
+    keyboard = [buttons]  # Теперь все кнопки действий находятся в одном ряду
+    return InlineKeyboardMarkup(keyboard)
+
+
+
+
+# Функция для создания текста игрового стола
+def generate_game_table(chat_id, deck, trump_suit, table_cards):
+    # Получаем текущий порядок хода
+    current_order = players[chat_id]
+    
+    # Информация о колоде и козыре
+    cards_left = len(deck)
+    trump_card = suit_to_emoji[trump_suit] + rank_to_emoji[deck[-1]['rank']]
+    
+    # Информация о порядке хода
+    order_info = "\n".join([f"{player['name']} - 🃏{len(player['hand'])}" for player in current_order])
+    
+    # Информация о текущем ходе
+    current_player = current_order[0]['name']
+    next_player = current_order[1]['name']
+    
+    # Собираем все вместе
+    table = f"🃏{cards_left} | Козырь: {trump_card} | Ход: {current_player} ➡️ {next_player}\n\n"
+    table += "Порядок хода:\n"
+    table += order_info
+    
+    # Здесь можно добавить информацию о картах на столе, если они есть
+    # (например, если игроки уже начали ходить)
+    table += "\n\nНа столе:\n"
+    table += " ".join([f"{suit_to_emoji[card['suit']]}{rank_to_emoji[card['rank']]}" for card in table_cards])
+    
+    return table
+
+#Выводим игровой стол
+async def update_game_table_message(update: Update, context: CallbackContext, chat_id, deck, trump_suit, table_cards):
+
+    print("Debug: Inside update_game_table_message")  # Отладочный вывод
+    print(f"Debug: Table cards inside update_game_table_message: {table_cards}")  # Отладочный вывод
+    
+    #Сохраняем данные о игре
+    context.user_data['table_cards'] = table_cards
+    context.user_data['deck'] = deck
+    context.user_data['trump_suit'] = trump_suit
+    # Генерируем игровой стол
+    table_message = generate_game_table(chat_id, deck, trump_suit, table_cards)
+    
+    # Отправляем или редактируем сообщение с игровым столом
+    # Здесь мы предполагаем, что у вас уже есть переменная для хранения ID сообщения с игровым столом.
+    # Если это не так, вы можете добавить ее.
+    if 'table_message_id' in context.user_data:
+        print(f"Debug: Updating table message with ID: {context.user_data['table_message_id']}")  # Отладочный вывод
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=context.user_data['table_message_id'], text=table_message)
+    else:
+        print("Debug: Sending new table message")  # Отладочный вывод
+        sent_message = await update.message.reply_text(table_message)
+        context.user_data['table_message_id'] = sent_message.message_id
+
+
+
+# Функция для обновления порядка хода
+def update_turn_order(players_order):
+    # Перемещаем текущего игрока в конец списка
+    current_player = players_order.pop(0)
+    players_order.append(current_player)
+    return players_order
+
+#Присоединение к игре
+async def join_game(update: Update, context: CallbackContext) -> None:
+    user = update.message.from_user
+    chat_id = update.message.chat_id
+
+    if chat_id not in players:
+        players[chat_id] = []
+
+    # Проверяем, не присоединился ли игрок уже
+    for player in players[chat_id]:
+        if player['id'] == user.id:
+            await update.message.reply_text(f"{user.first_name}, ты уже в игре!")
+            return
+
+    players[chat_id].append({
+        'id': user.id,
+        'name': user.first_name,
+        'message': update.message,  # добавьте эту строку
+        'status': 'Idle'  # начальный статус
+
+    })
+
+    await update.message.reply_text(f"{user.first_name} присоединился к игре!")

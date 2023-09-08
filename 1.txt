@@ -13,6 +13,7 @@ import asyncio
 
 
 
+
 #Управление ботом
 async def start(update, context):
     await update.message.reply_text("Привет! Я бот для игры в Дурака. Напиши /help, чтобы узнать, как играть.")

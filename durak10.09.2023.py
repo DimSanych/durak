@@ -36,25 +36,6 @@ async def rules(update, context):
 # Список игроков, которые хотят играть
 players = {}
 
-# Глобальный словарь для хранения данных игр
-games_data = {}
-
-def initialize_game(chat_id):
-    # Ваша логика инициализации игры
-    game_data = {
-    
-            'chat_id': chat_id,
-            'players': [],
-            'deck': [],
-            'trump_suit': None,
-            'table_cards': [],
-            'current_turn': None,
-            'game_status': 'not_started'
-        }
-    return game_data   
-
-
-
 
 
 # Список мастей и рангов для создания колоды карт.
@@ -153,26 +134,23 @@ def determine_first_player(players_list, trump_suit):
 
 
 # Функция для отправки карт игрокам
-async def send_cards_to_players(chat_id, context: CallbackContext) -> None:
-    game_data = games_data[chat_id]  # Получаем данные текущей игры из глобального словаря games_data
-    for player in game_data['players']:  # Проходим по каждому игроку
+async def send_cards_to_players(players_list, context: CallbackContext):
+    for player in players_list:  # Проходим по каждому игроку
         # Преобразуем карты игрока в строку с эмодзи
         hand_emoji = " ".join([suit_to_emoji[card['suit']] + rank_to_emoji[card['rank']] for card in player['hand']])
         # Генерируем меню с картами
         cards_menu = generate_cards_menu(player['hand'])
         # Генерируем меню действий
-        actions_menu = generate_actions_menu(player['status'], game_data['table_cards'])
+        actions_menu = generate_actions_menu(player['status'])
         # Объединяем два меню в одно
+        # Проверяем, не является ли actions_menu значением None
         if actions_menu:
             combined_menu = cards_menu.inline_keyboard + actions_menu.inline_keyboard
         else:
             combined_menu = cards_menu.inline_keyboard
         
         # Отправляем сообщение с объединенным меню
-        table_message = generate_game_table(game_data)
-        await context.bot.send_message(chat_id=player['id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
-
-
+        await context.bot.send_message(chat_id=player['id'], text=f"Твои карты: {hand_emoji}", reply_markup=InlineKeyboardMarkup(combined_menu))
 
 
 
@@ -224,43 +202,42 @@ def generate_actions_menu(player_status, table_cards=None):
 
 
 # Функция для создания текста игрового стола
-def generate_game_table(game_data):
+def generate_game_table(chat_id, deck, trump_suit, table_cards):
     # Получаем текущий порядок хода
-    current_order = game_data['players']
-    deck = game_data['deck']
-    trump_suit = game_data['trump_suit']
+    current_order = players[chat_id]  # Используем chat_id для получения списка игроков из глобального словаря players
 
     # Информация о колоде и козыре
-    cards_left = len(deck)
-    trump_card = suit_to_emoji[trump_suit] + rank_to_emoji[deck[-1]['rank']]
+    cards_left = len(deck)  # Определяем количество оставшихся карт в колоде
+    trump_card = suit_to_emoji[trump_suit] + rank_to_emoji[deck[-1]['rank']]  # Определяем эмодзи козырной карты
 
     # Информация о порядке хода
-    order_info = "\n".join([f"{player['name']} - 🃏{len(player['hand'])}" for player in current_order])
+    order_info = "\n".join([f"{player['name']} - 🃏{len(player['hand'])}" for player in current_order])  # Генерируем строку с именами игроков и количеством карт в их руках
 
     # Информация о текущем ходе
-    current_player = current_order[0]['name']
-    next_player = current_order[1]['name']
+    current_player = current_order[0]['name']  # Получаем имя текущего игрока
+    next_player = current_order[1]['name']  # Получаем имя следующего игрока
 
     # Собираем все вместе
-    table = f"🃏{cards_left} | Козырь: {trump_card} | Ход: {current_player} ➡️ {next_player}\n\n"
+    table = f"🃏{cards_left} | Козырь: {trump_card} | Ход: {current_player} ➡️ {next_player}\n\n"  # Генерируем строку с информацией о колоде, козыре и порядке хода
     table += "Порядок хода:\n"
-    table += order_info
+    table += order_info  # Добавляем информацию о порядке хода
 
-    # Информация о картах на столе
-    table_cards = game_data['table_cards']
+    # Здесь можно добавить информацию о картах на столе, если они есть
     table += "\n\nНа столе:\n"
-    table += " ".join([f"{suit_to_emoji[card['suit']]}{rank_to_emoji[card['rank']]}" for card in table_cards])
+    table += " ".join([f"{suit_to_emoji[card['suit']]}{rank_to_emoji[card['rank']]}" for card in table_cards])  # Генерируем строку с картами на столе
 
-    return table
-
+    return table  # Возвращаем сгенерированный текст игрового стола
 
 # Функция для обновления сообщения с игровым столом
-async def update_game_table_message(update: Update, context: CallbackContext) -> None:
-    chat_id = update.message.chat_id
-    game_data = games_data[chat_id]  # Получаем данные текущей игры из глобального словаря games_data
+async def update_game_table_message(update: Update, context: CallbackContext, chat_id, deck, trump_suit, table_cards):
+
+    # Сохраняем данные о игре
+    context.user_data['table_cards'] = table_cards  # Сохраняем карты на столе в user_data
+    context.user_data['deck'] = deck  # Сохраняем текущую колоду в user_data
+    context.user_data['trump_suit'] = trump_suit  # Сохраняем текущий козырь в user_data
 
     # Генерируем игровой стол
-    table_message = generate_game_table(game_data)
+    table_message = generate_game_table(chat_id, deck, trump_suit, table_cards)  # Генерируем текст игрового стола
 
     # Отправляем или редактируем сообщение с игровым столом
     if 'table_message_id' in context.user_data:  # Проверяем, есть ли уже сообщение с игровым столом
@@ -269,118 +246,73 @@ async def update_game_table_message(update: Update, context: CallbackContext) ->
         sent_message = await update.message.reply_text(table_message)  # Если нет, отправляем новое сообщение
         context.user_data['table_message_id'] = sent_message.message_id  # Сохраняем ID нового сообщения в user_data
 
-async def update_player_game_table(update: Update, context: CallbackContext, game_data: dict) -> None:
-    # Генерируем игровой стол
-    table_message = generate_game_table(game_data)
-
-    for player in game_data['players']:
-        player_id = player['id']
-        
-        # Проверяем, отправляли ли мы уже игроку сообщение с игровым столом
-        if player_id in context.user_data and 'table_message_id' in context.user_data[player_id]:
-            # Если отправляли, обновляем это сообщение
-            await context.bot.edit_message_text(chat_id=player_id, message_id=context.user_data[player_id]['table_message_id'], text=table_message)
-        else:
-            # Если не отправляли, отправляем новое сообщение и сохраняем его ID
-            sent_message = await context.bot.send_message(chat_id=player_id, text=table_message)
-            if player_id not in context.user_data:
-                context.user_data[player_id] = {}
-            context.user_data[player_id]['table_message_id'] = sent_message.message_id
-
-
-
-# Функция присоединения к игре и формирования списка игроков
-
 async def join_game(update: Update, context: CallbackContext) -> None:
-    user = update.message.from_user
-    chat_id = update.message.chat_id
-    chat_type = update.message.chat.type
+    user = update.message.from_user  # Получаем информацию о пользователе, который отправил сообщение
+    chat_id = update.message.chat_id  # Получаем ID чата (группы)
+    chat_type = update.message.chat.type  # Получаем тип чата
 
+    # Проверяем, является ли чат групповым
     if chat_type not in ["group", "supergroup"]:
         await update.message.reply_text("Используйте команду в группе")
         return
 
-    # Инициализируем игру, если она еще не начата для этого чата
-    if chat_id not in games_data:
-        games_data[chat_id] = initialize_game(chat_id)
-    game = games_data[chat_id]
-
-    # Если игра уже началась, новые игроки не могут присоединиться
-    if game['game_status'] == 'started':
-        await update.message.reply_text("Игра уже началась. Вы не можете присоединиться сейчас.")
-        return
+    if chat_id not in players:  # Проверяем, есть ли уже игроки в этой группе
+        players[chat_id] = []  # Если нет, создаем пустой список игроков для этой группы
 
     # Проверяем, не присоединился ли игрок уже
-    for player in game['players']:
-        if player['id'] == user.id:
+    for player in players[chat_id]:
+        if player['id'] == user.id:  # Сравниваем ID игрока с ID пользователя
             await update.message.reply_text(f"{user.first_name}, ты уже в игре!")
             return
 
-    game['players'].append({
+    # Добавляем нового игрока в список игроков группы
+    players[chat_id].append({
         'id': user.id,
         'name': user.first_name,
-        'hand': [],
-        'status': 'Idle'
+        'message': update.message,
+        'status': 'Idle',
+        'group_chat_id': chat_id  # Добавляем ID группы в данные игрока
     })
 
     await update.message.reply_text(f"{user.first_name} присоединился к игре!")
 
 
-
-
-
-
-
-
 # Просмотр списка игроков
 async def list_participants(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id  # Получаем ID чата (группы)
-    
-    # Получаем текущую игру из глобального словаря games_data
-    game = games_data.get(chat_id)
-
-    # Проверяем, была ли игра инициализирована и есть ли игроки
-    if not game or not game['players']:
+    if chat_id not in players or not players[chat_id]:  # Проверяем, есть ли игроки в этой группе
         await update.message.reply_text("В игре пока нет участников.")
         return
 
-    players_list = "\n".join([player['name'] for player in game['players']])  # Создаем список имен игроков
+    players_list = "\n".join([player['name'] for player in players[chat_id]])  # Создаем список имен игроков
     await update.message.reply_text(f"Участники игры:\n{players_list}")
-
-
 
 # Запуск игры
 async def go(update: Update, context: CallbackContext) -> None:
+    table_cards = []  # Создаем пустой список для карт на столе
+    context.user_data['group_chat_id'] = update.message.chat_id  # Сохраняем ID чата (группы) в user_data
     chat_id = update.message.chat_id  # Получаем ID чата (группы)
     
-    # Получаем текущую игру из глобального словаря games_data
-    game = games_data.get(chat_id)
 
-    # Если игра еще не была инициализирована, инициализируем ее
-    if not game:
-        game = initialize_game(chat_id)
-        games_data[chat_id] = game
-
-    # Проверяем, была ли игра уже начата ранее
-    if game['game_status'] == 'started':
-        await update.message.reply_text("Игра уже началась!")
+    if chat_id not in players:  # Проверяем, началась ли игра в этой группе
+        await update.message.reply_text("Игра еще не началась!")
         return
 
-    # Проверяем, есть ли достаточно игроков для начала игры
-    if len(game['players']) < 2:
+    if len(players[chat_id]) < 2:  # Проверяем, есть ли достаточно игроков для начала игры
         await update.message.reply_text("Нельзя начать игру в одиночку!")
         return
-
+    
     # Создаем колоду, перетасовываем и раздаем карты
     deck = shuffle_deck(create_deck("36"))  # Создаем и перетасовываем колоду из 36 карт
-    game['deck'] = deck
-    game['players'], deck = deal_cards(game['players'], deck)  # Раздаем карты игрокам
-
+    players[chat_id], deck = deal_cards(players[chat_id], deck)  # Раздаем карты игрокам
+    
     # Определение козыря
-    game['trump_suit'] = determine_trump(deck)  # Определяем козырь
+    trump_suit = determine_trump(deck)  # Определяем козырь
+    for player in players[chat_id]:
+        player['trump_suit'] = trump_suit
 
     # Определение игрока с наименьшим козырем и порядка хода
-    players_order = determine_first_player(game['players'], game['trump_suit'])  # Определяем порядок хода игроков
+    players_order = determine_first_player(players[chat_id], trump_suit)  # Определяем порядок хода игроков
     random.shuffle(players_order[1:])  # Перемешиваем порядок остальных игроков
 
     # Устанавливаем статусы игроков
@@ -388,25 +320,13 @@ async def go(update: Update, context: CallbackContext) -> None:
     players_order[1]['status'] = 'Defending'  # Второй игрок защищается
     for player in players_order[2:]:
         player['status'] = 'Idle'  # Остальные игроки ожидают своего хода
-    game['players'] = players_order  # Обновляем порядок хода игроков в словаре game
-
-    # Отправка карт игрокам и определение порядка хода
-    await send_cards_to_players(chat_id, context)  # Отправляем карты игрокам
-    await update_game_table_message(update, context)  # Обновляем игровой стол
-    # Обновляем игровой стол у каждого игрока
-    chat_id = update.message.chat_id
-
-    # Для отладки: вывод данных игроков в консоли
-    for player in game['players']:
-        print(player)
-
-    game['current_turn'] = game['players'][0]['id']  # Устанавливаем текущий ход на атакующего игрока
-    game['game_status'] = 'started'  # Обновляем статус игры на "started"
-    # Для отладки: вывод данных игры в консоли
-    print("Game data:", game)
-
+    players[chat_id] = players_order  # Обновляем порядок хода игроков в глобальном словаре players
     
+    # Отправка карт игрокам и определение порядка хода
+    await send_cards_to_players(players[chat_id], context)  # Отправляем карты игрокам
+    await update_game_table_message(update, context, chat_id, deck, trump_suit, table_cards)  # Обновляем игровой стол
 
+    # Запуск начала раунда
 
 #Пока не используется
 def start_round(players_order, deck):

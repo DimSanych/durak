@@ -106,10 +106,8 @@ rank_hierarchy = {
 # Добавляет или убирает эмодзи ✅ из текста карты.
 def toggle_card_selection(card_text):
     if card_text.startswith("✅"):
-        print(f"Original card text: {card_text}")
         return card_text[2:]  # Убираем эмодзи, если карта уже выделена
     else:
-        print(f"Selecting card: {card_text}")  # Добавлено для отладки
         return f"✅ {card_text}"  # Добавляем эмодзи, если карта не выделена
 
 #игровая колода
@@ -154,23 +152,34 @@ def determine_first_player(players_list, trump_suit):
 
 # Функция для отправки карт игрокам
 async def send_cards_to_players(chat_id, context: CallbackContext) -> None:
-    game_data = games_data[chat_id]  # Получаем данные текущей игры из глобального словаря games_data
-    for player in game_data['players']:  # Проходим по каждому игроку
-        # Преобразуем карты игрока в строку с эмодзи
+    # Получаем данные текущей игры из глобального словаря games_data по chat_id
+    game_data = games_data[chat_id]
+    
+    # Проходим по списку игроков в текущей игре
+    for player in game_data['players']:
+        
+        # Преобразуем каждую карту игрока в строку с эмодзи и объединяем их в одну строку
         hand_emoji = " ".join([suit_to_emoji[card['suit']] + rank_to_emoji[card['rank']] for card in player['hand']])
-        # Генерируем меню с картами
+        
+        # Генерируем клавиатуру с картами игрока
         cards_menu = generate_cards_menu(player['hand'])
-        # Генерируем меню действий
+        
+        # Генерируем клавиатуру с возможными действиями игрока
         actions_menu = generate_actions_menu(player['status'], game_data['table_cards'])
-        # Объединяем два меню в одно
+        
+        # Если есть меню действий, объединяем его с меню карт, иначе используем только меню карт
         if actions_menu:
             combined_menu = cards_menu.inline_keyboard + actions_menu.inline_keyboard
         else:
             combined_menu = cards_menu.inline_keyboard
         
-        # Отправляем сообщение с объединенным меню
+        # Генерируем текстовое представление игрового стола
         table_message = generate_game_table(game_data)
-        await context.bot.send_message(chat_id=player['id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
+        
+        # Отправляем игроку сообщение с игровым столом и объединенным меню
+        sent_message = await context.bot.send_message(chat_id=player['id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
+        player['message_id'] = sent_message.message_id
+
 
 
 
@@ -249,45 +258,33 @@ def generate_game_table(game_data):
     # Информация о картах на столе
     table_cards = game_data['table_cards']
     table += "\n\nНа столе:\n"
-    table += " ".join([f"{suit_to_emoji[card['suit']]}{rank_to_emoji[card['rank']]}" for card in table_cards])
-
+    for entry in table_cards:
+        card = entry["card"]
+        card_str = f"{suit_to_emoji[card['suit']]}{rank_to_emoji[card['rank']]}"
+        
+        if entry["type"] == "attack":
+            table += f"\n{card_str}"  # Новая строка для карты атаки
+        else:
+            table += f"  ➡️  {card_str}"  # Карта защиты добавляется к карте атаки
+    
     return table
 
 
 # Функция для обновления сообщения с игровым столом
-async def update_game_table_message(update: Update, context: CallbackContext) -> None:
-    chat_id = update.message.chat_id
+async def update_game_table_message(chat_id, context: CallbackContext) -> None:
+
     game_data = games_data[chat_id]  # Получаем данные текущей игры из глобального словаря games_data
 
     # Генерируем игровой стол
     table_message = generate_game_table(game_data)
 
     # Отправляем или редактируем сообщение с игровым столом
-    if 'table_message_id' in context.user_data:  # Проверяем, есть ли уже сообщение с игровым столом
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=context.user_data['table_message_id'], text=table_message)  # Если есть, редактируем его
+    if 'table_message_id' in context.user_data:
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=context.user_data['table_message_id'], text=table_message)
     else:
-        sent_message = await update.message.reply_text(table_message)  # Если нет, отправляем новое сообщение
-        context.user_data['table_message_id'] = sent_message.message_id  # Сохраняем ID нового сообщения в user_data
-
-async def update_player_game_table(update: Update, context: CallbackContext, game_data: dict) -> None:
-    # Генерируем игровой стол
-    table_message = generate_game_table(game_data)
-
-    for player in game_data['players']:
-        player_id = player['id']
-        
-        # Проверяем, отправляли ли мы уже игроку сообщение с игровым столом
-        if player_id in context.user_data and 'table_message_id' in context.user_data[player_id]:
-            # Если отправляли, обновляем это сообщение
-            await context.bot.edit_message_text(chat_id=player_id, message_id=context.user_data[player_id]['table_message_id'], text=table_message)
-        else:
-            # Если не отправляли, отправляем новое сообщение и сохраняем его ID
-            sent_message = await context.bot.send_message(chat_id=player_id, text=table_message)
-            if player_id not in context.user_data:
-                context.user_data[player_id] = {}
-            context.user_data[player_id]['table_message_id'] = sent_message.message_id
-
-
+        sent_message = await context.bot.send_message(chat_id=chat_id, text=table_message)
+        context.user_data['table_message_id'] = sent_message.message_id
+        return sent_message.message_id  # Возвращаем ID сообщения
 
 # Функция присоединения к игре и формирования списка игроков
 
@@ -295,6 +292,10 @@ async def join_game(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
     chat_id = update.message.chat_id
     chat_type = update.message.chat.type
+
+    # сохраняем ID группы в context.user_data для каждого игрока
+    context.user_data['group_chat_id'] = chat_id
+
 
     if chat_type not in ["group", "supergroup"]:
         await update.message.reply_text("Используйте команду в группе")
@@ -387,12 +388,15 @@ async def go(update: Update, context: CallbackContext) -> None:
     players_order[0]['status'] = 'Attacking'  # Первый игрок атакует
     players_order[1]['status'] = 'Defending'  # Второй игрок защищается
     for player in players_order[2:]:
+
+
         player['status'] = 'Idle'  # Остальные игроки ожидают своего хода
     game['players'] = players_order  # Обновляем порядок хода игроков в словаре game
 
     # Отправка карт игрокам и определение порядка хода
     await send_cards_to_players(chat_id, context)  # Отправляем карты игрокам
-    await update_game_table_message(update, context)  # Обновляем игровой стол
+    group_message_id = await update_game_table_message(chat_id, context)
+    game['group_message_id'] = group_message_id
     # Обновляем игровой стол у каждого игрока
     chat_id = update.message.chat_id
 
@@ -445,6 +449,12 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
     query_data = query.data
     user_chat_id = query.message.chat_id  # ID чата с пользователем
 
+    #Игровые переменные
+    group_chat_id = context.user_data.get('group_chat_id', None)
+    game_data = games_data.get(group_chat_id)
+    table_cards = game_data['table_cards']
+    trump_suit = game_data['trump_suit']
+
     if query.data.startswith('card_'):
         # Получаем текущую клавиатуру
         current_keyboard = query.message.reply_markup.inline_keyboard
@@ -465,6 +475,7 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
                 if "✅" in new_button.text:
                     card_data = new_button.callback_data.split("_")[1]  # Получаем данные карты из callback_data
                     selected_cards.append(card_data)  # Добавляем карту в список выбранных
+                    print(selected_cards)
 
                 new_row.append(new_button)
             new_keyboard.append(new_row)
@@ -484,84 +495,120 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
     
         # Проверяем, имеют ли все выбранные карты одинаковый ранг
         if not check_cards_same_value(selected_cards):
-            await query.message.reply_text("Выберите карты одного значения.")
+            await query.answer("Выберите карты одного значения.", show_alert=False)
             return
 
         # Если все хорошо, отправляем подсказку пользователю
-        await query.message.reply_text("Можно атаковать выбранными картами")
+        await query.answer("Можно атаковать выбранными картами", show_alert=False)
 
         group_chat_id = context.user_data.get('group_chat_id', None)
+        game_data = games_data.get(group_chat_id)
+        # Используем уже полученные данные из game_data
+        players = game_data['players']
+        deck = game_data['deck']
+        table_cards = game_data['table_cards']
 
-
-        # Получаем остальные необходимые данные
-        table_cards = context.user_data.get('table_cards', [])
-        deck = context.user_data.get('deck', [])
         # Получаем игрока по его ID
-        player = next((p for p in players[group_chat_id] if p['id'] == query.from_user.id), None)
+        player = next((p for p in players if p['id'] == query.from_user.id), None)
 
         # Если игрок найден, получаем trump_suit из его словаря
         if player:
             trump_suit = player.get('trump_suit', None)
-        # Вызываем функцию атаки
-        await handle_attack(update, context, user_chat_id, group_chat_id, selected_cards, table_cards, deck, trump_suit)
+        else:
+            trump_suit = None  # или другое значение по умолчанию
 
-
-async def handle_attack(update: Update, context: CallbackContext, user_chat_id, group_chat_id, selected_cards, table_cards, deck, trump_suit):
+        user_chat_id = query.message.chat_id
     
+        # Вызываем функцию атаки
+        await handle_attack(update, context, user_chat_id, game_data)
+
+    elif query_data == "action_defend":
+        # Получаем выбранные карты из context.user_data
+        selected_cards = context.user_data.get('selected_cards', [])
+        
+
+        # Преобразуем в словарь
+        selected_cards = [{'suit': card_str.split('-')[0], 'rank': card_str.split('-')[1]} for card_str in selected_cards]
+        
+        # Проверяем, может ли выбранная карта побить карту на столе
+        if not can_defend(selected_cards, table_cards, trump_suit):
+            await query.answer("Выбранная карта не может побить карту на столе.", show_alert=False)
+            return
+
+        # Если все хорошо, отправляем подсказку пользователю
+        await query.answer("Успешная защита!", show_alert=False)
+
+        # Вызываем функцию защиты
+        await handle_defend(update, context, user_chat_id, game_data)
+
+
+
+
+async def handle_attack(update: Update, context: CallbackContext, user_chat_id, game_data):
     print("Debug: Inside handle_attack")  # Отладочный вывод
     
-    
+    # Извлекаем необходимые данные из game_data
+    group_chat_id = game_data['chat_id']
+    players = game_data['players']
+    table_cards = game_data['table_cards']
+    deck = game_data['deck']
+    trump_suit = game_data['trump_suit']
 
-    # Удаляем выбранные карты из руки игрока
-    # Получаем список всех игроков из всех групп
-    all_players = [p for group in players.values() for p in group]
-
-
-    print(f"Debug: All players: {all_players}")  # Отладочный вывод
+    # Получаем выбранные карты из context.user_data
+    selected_cards = context.user_data.get('selected_cards', [])
+    selected_cards = [{'type': 'attack', 'card': {'suit': card_str.split('-')[0], 'rank': card_str.split('-')[1]}} for card_str in selected_cards]
 
     # Ищем игрока с нужным chat_id
-    player = None
-    for p in all_players:
-        if p['id'] == update.callback_query.from_user.id:
-            player = p
-            break
+    player = next((p for p in players if p['id'] == update.callback_query.from_user.id), None)
 
-    print(f"Debug: Found player: {player}")  # Отладочный вывод
+    if player:
+        player['hand'] = [card for card in player['hand'] if card not in [c['card'] for c in selected_cards]]
+        player['status'] = 'idle'
 
+        # Добавляем выбранные карты на стол с учетом индексации
+        if table_cards:
+            current_index = max([card.get('index', 0) for card in table_cards]) + 1
+        else:
+            current_index = 1
+        for card in selected_cards:
+            card['index'] = current_index
+            current_index += 1
+            table_cards.append(card)
 
-    # Если игрок найден, продолжаем обработку
-    player['hand'] = [card for card in player['hand'] if card not in selected_cards]
-    
-    print(f"Debug: Selected cards before extending table_cards: {selected_cards}")  # Отладочный вывод
-    print(f"Debug: Table cards before extending: {table_cards}")  # Отладочный вывод
-    
-    # Добавляем выбранные карты на стол
-    table_cards.extend(selected_cards)
+        # Сохраняем обновленный список карт на столе в context.user_data
+        context.user_data['table_cards'] = table_cards
 
-    print(f"Debug: Table cards after extending: {table_cards}")  # Отладочный вывод
+        table_message = generate_game_table(game_data)
 
-    # Сохраняем обновленный список карт на столе в context.user_data
-    context.user_data['table_cards'] = table_cards
-    
-    # Получаем ID группового чата
-    group_chat_id = player.get('group_chat_id', None)
+        # Обновляем игровой стол
+        # await update_game_table_message(group_chat_id, context)
+        # Обновляем игровой стол в групповом чате
+        await context.bot.edit_message_text(chat_id=group_chat_id, message_id=game_data['group_message_id'], text=table_message)
 
-    #Получаем козырь
-    trump_suit = context.user_data.get('trump_suit', None)
-
-    # Обновляем игровой стол
-    await update_game_table_message(update, context, group_chat_id, deck, trump_suit, table_cards)
-    
-    # Создаем новую клавиатуру на основе оставшихся карт
-    new_keyboard = generate_cards_menu(player['hand'])
-
-    # Обновляем сообщение с новой клавиатурой
-    reply_markup = InlineKeyboardMarkup(new_keyboard)
-    await context.bot.edit_message_reply_markup(chat_id=user_chat_id, message_id=update.callback_query.message.message_id, reply_markup=reply_markup)
-
-    # Отправляем сообщение, что атака успешно выполнена
-    await update.callback_query.message.reply_text("Атака выполнена. Ход переходит к следующему игроку.")
-
+        # Обновляем кнопки действий у всех игроков
+        for p in players:
+            print(f"Player {p['name']} has status: {p['status']}")
+            
+            # Генерируем клавиатуру с картами игрока
+            cards_menu = generate_cards_menu(p['hand'])
+            
+            # Генерируем клавиатуру с возможными действиями игрока
+            actions_menu = generate_actions_menu(p['status'], table_cards)
+            
+            # Если есть меню действий, объединяем его с меню карт, иначе используем только меню карт
+            if actions_menu:
+                combined_menu = cards_menu.inline_keyboard + actions_menu.inline_keyboard
+            else:
+                combined_menu = cards_menu.inline_keyboard
+            
+            # Генерируем текстовое представление игрового стола
+            table_message = generate_game_table(game_data)
+            
+            # Если у игрока есть 'message_id'
+            if 'message_id' in p:
+                # Обновляем текст сообщения и клавиатуру одновременно
+                await context.bot.edit_message_text(chat_id=p['id'], message_id=p['message_id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
+        print(game_data['table_cards'])
 
 
 def check_cards_same_value(selected_cards):
@@ -576,6 +623,107 @@ def check_cards_same_value(selected_cards):
     
     return True  # Возвращаем True, если все карты имеют одинаковый ранг
 
+async def handle_defend(update: Update, context: CallbackContext, user_chat_id, game_data):
+    print("Debug: Inside handle_defend")  # Отладочный вывод
+    
+    # Извлекаем необходимые данные из game_data
+    group_chat_id = game_data['chat_id']
+    players = game_data['players']
+    table_cards = game_data['table_cards']
+    deck = game_data['deck']
+    trump_suit = game_data['trump_suit']
+
+    # Получаем выбранные карты из context.user_data
+    selected_cards = context.user_data.get('selected_cards', [])
+    selected_cards = [{'type': 'defend', 'card': {'suit': card_str.split('-')[0], 'rank': card_str.split('-')[1]}} for card_str in selected_cards]
+
+    # Ищем игрока с нужным chat_id
+    player = next((p for p in players if p['id'] == update.callback_query.from_user.id), None)
+
+    if player:
+        player['hand'] = [card for card in player['hand'] if card not in [c['card'] for c in selected_cards]]
+
+        # Добавляем выбранные карты на стол с учетом индексации
+        for card in selected_cards:
+            # Находим соответствующую карту атаки по индексу
+            attack_card = next((c for c in table_cards if c['type'] == 'attack' and 'index' in c), None)
+            if attack_card:
+                card['index'] = attack_card['index']  # Присваиваем карте защиты индекс карты атаки
+                del attack_card['index']  # Удаляем индекс у карты атаки, так как она успешно отбита
+            table_cards.append(card)
+
+        # Сохраняем обновленный список карт на столе в context.user_data
+        context.user_data['table_cards'] = table_cards
+
+        table_message = generate_game_table(game_data)
+
+        # Обновляем игровой стол в групповом чате
+        await context.bot.edit_message_text(chat_id=group_chat_id, message_id=game_data['group_message_id'], text=table_message)
+
+        # Обновляем кнопки действий у всех игроков
+        for p in players:
+            print(f"Player {p['name']} has status: {p['status']}")
+            
+            # Генерируем клавиатуру с картами игрока
+            cards_menu = generate_cards_menu(p['hand'])
+            
+            # Генерируем клавиатуру с возможными действиями игрока
+            actions_menu = generate_actions_menu(p['status'], table_cards)
+            
+            # Если есть меню действий, объединяем его с меню карт, иначе используем только меню карт
+            if actions_menu:
+                combined_menu = cards_menu.inline_keyboard + actions_menu.inline_keyboard
+            else:
+                combined_menu = cards_menu.inline_keyboard
+            
+            # Генерируем текстовое представление игрового стола
+            table_message = generate_game_table(game_data)
+            
+            # Если у игрока есть 'message_id'
+            if 'message_id' in p:
+                # Обновляем текст сообщения и клавиатуру одновременно
+                await context.bot.edit_message_text(chat_id=p['id'], message_id=p['message_id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
+        print(game_data['table_cards'])
+
+
+
+
+
+
+
+
+def can_defend(defending_cards, table_cards, trump_suit):
+    """
+    Проверяет, могут ли выбранные карты побить карты на столе.
+
+    :param defending_cards: Список выбранных карт для защиты.
+    :param table_cards: Список карт на столе.
+    :param trump_suit: Козырь текущей игры.
+    :return: True, если все выбранные карты могут побить соответствующие карты на столе, иначе False.
+    """
+    
+    # Отфильтровываем карты на столе, чтобы оставить только те, которыми атакуют
+    attacking_cards = [card['card'] for card in table_cards if card['type'] == 'attack']
+    
+    # Определяем, сколько карт на столе еще не отбиты
+    unbeat_cards_count = len(attacking_cards) - len(defending_cards)
+    
+    # Проходим по каждой карте, которой игрок пытается отбиться
+    for i, defend_card in enumerate(defending_cards):
+        attack_card = attacking_cards[unbeat_cards_count + i]
+        
+        # Проверяем, может ли defend_card побить attack_card, если они одной масти и ранг defend_card выше
+        if attack_card['suit'] == defend_card['suit'] and rank_hierarchy[defend_card['rank']] > rank_hierarchy[attack_card['rank']]:
+            continue
+        # Проверяем, может ли defend_card побить attack_card, если defend_card - козырь, а attack_card - нет
+        elif defend_card['suit'] == trump_suit and attack_card['suit'] != trump_suit:
+            continue
+        else:
+            print(f"Card {defend_card} cannot beat {attack_card}")  # Отладочный вывод
+            return False
+
+    print("Этими картами можно побиться")  # Отладочный вывод
+    return True
 
 
 

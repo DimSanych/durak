@@ -22,8 +22,6 @@ async def help_command(update, context):
 
 async def play(update, context):
     await join_game(update, context)
-
-    # Здесь будет логика начала игры
     pass
 
 async def rules(update, context):
@@ -436,7 +434,7 @@ async def go(update: Update, context: CallbackContext) -> None:
     game['current_turn'] = game['players'][0]['id']  # Устанавливаем текущий ход на атакующего игрока
     game['game_status'] = 'started'  # Обновляем статус игры на "started"
     # Для отладки: вывод данных игры в консоли
-    print("Game data:", game)
+    # print("Game data:", game)
 
     
 
@@ -468,8 +466,22 @@ def end_round(players_order, successful_defense):
 
 # Команда прекращения игры
 async def stop(update: Update, context: CallbackContext) -> None:
+    # Извлекаем необходимые данные из game_data
+    game_data = games_data.get(group_chat_id)
+    group_chat_id = game_data['chat_id']
+    players = game_data['players']
+
+    # Отправляем сообщение в групповой чат о завершении игры
+    await context.bot.send_message(chat_id=group_chat_id, text="Игра завершена!")
+
+    # Удаляем кнопки у всех игроков
+    for player in players:
+        if 'message_id' in player:
+            await context.bot.edit_message_reply_markup(chat_id=player['id'], message_id=player['message_id'], reply_markup=None)
+
+    # Очищаем список игроков и другие игровые данные
     players.clear()
-    await update.message.reply_text("Игра завершена!")
+    game_data.clear()
 
 
 async def callback_query_handler(update: Update, context: CallbackContext) -> None:
@@ -649,7 +661,7 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
 
 # Функция "Атаковать"
 async def handle_attack(update: Update, context: CallbackContext, user_chat_id, game_data):
-    print("Debug: Inside handle_attack")  # Отладочный вывод
+    # print("Debug: Inside handle_attack")  # Отладочный вывод
     
     # Извлекаем необходимые данные из game_data
     group_chat_id = game_data['chat_id']
@@ -682,6 +694,7 @@ async def handle_attack(update: Update, context: CallbackContext, user_chat_id, 
         # Сохраняем обновленный список карт на столе в context.user_data
         context.user_data['table_cards'] = table_cards
 
+        await check_player_status(update, context, user_chat_id, game_data)
         table_message = generate_game_table(game_data)
 
         # Обновляем игровой стол в групповом чате
@@ -689,7 +702,7 @@ async def handle_attack(update: Update, context: CallbackContext, user_chat_id, 
 
         # Обновляем кнопки действий у всех игроков
         for p in players:
-            print(f"Player {p['name']} has status: {p['status']}")
+            # print(f"Player {p['name']} has status: {p['status']}")
             
             # Генерируем клавиатуру с картами игрока
             cards_menu = generate_cards_menu(p['hand'])
@@ -727,7 +740,7 @@ def check_cards_same_value(selected_cards):
 
 # Функция "Отбиться"
 async def handle_defend(update: Update, context: CallbackContext, user_chat_id, game_data):
-    print("Debug: Inside handle_defend")  # Отладочный вывод
+    # print("Debug: Inside handle_defend")  # Отладочный вывод
     
     # Извлекаем необходимые данные из game_data
     group_chat_id = game_data['chat_id']
@@ -760,6 +773,7 @@ async def handle_defend(update: Update, context: CallbackContext, user_chat_id, 
         # Сохраняем обновленный список карт на столе в context.user_data
         context.user_data['table_cards'] = table_cards
 
+        await check_player_status(update, context, user_chat_id, game_data)
         table_message = generate_game_table(game_data)
 
         # Обновляем игровой стол в групповом чате
@@ -767,7 +781,7 @@ async def handle_defend(update: Update, context: CallbackContext, user_chat_id, 
 
         # Обновляем кнопки действий у всех игроков
         for p in players:
-            print(f"Player {p['name']} has status: {p['status']}")
+            # print(f"Player {p['name']} has status: {p['status']}")
             
             # Генерируем клавиатуру с картами игрока
             cards_menu = generate_cards_menu(p['hand'])
@@ -792,7 +806,7 @@ async def handle_defend(update: Update, context: CallbackContext, user_chat_id, 
 
 # Функция "Подкинуть"
 async def handle_throw_in(update: Update, context: CallbackContext, user_chat_id, game_data):
-    print("Debug: Inside handle_throw_in")  # Отладочный вывод
+    # print("Debug: Inside handle_throw_in")  # Отладочный вывод
     
     # Извлекаем необходимые данные из game_data
     group_chat_id = game_data['chat_id']
@@ -828,6 +842,7 @@ async def handle_throw_in(update: Update, context: CallbackContext, user_chat_id
         # Сохраняем обновленный список карт на столе в context.user_data
         context.user_data['table_cards'] = table_cards
 
+        await check_player_status(update, context, user_chat_id, game_data)
         table_message = generate_game_table(game_data)
 
         # Обновляем игровой стол в групповом чате
@@ -835,7 +850,7 @@ async def handle_throw_in(update: Update, context: CallbackContext, user_chat_id
 
         # Обновляем кнопки действий у всех игроков
         for p in players:
-            print(f"Player {p['name']} has status: {p['status']}")
+            # print(f"Player {p['name']} has status: {p['status']}")
             
             # Генерируем клавиатуру с картами игрока
             cards_menu = generate_cards_menu(p['hand'])
@@ -860,7 +875,7 @@ async def handle_throw_in(update: Update, context: CallbackContext, user_chat_id
 
 # Функция "Перевести"
 async def handle_transfer(update: Update, context: CallbackContext, user_chat_id, game_data):
-    print("Debug: Inside handle_transfer")  # Отладочный вывод
+    # print("Debug: Inside handle_transfer")  # Отладочный вывод
     
     # Извлекаем необходимые данные из game_data
     group_chat_id = game_data['chat_id']
@@ -893,6 +908,7 @@ async def handle_transfer(update: Update, context: CallbackContext, user_chat_id
         players_order.append(players_order.pop(0))
         players_order[1]['status'] = 'Defending'  # Второй игрок теперь защищается
 
+        await check_player_status(update, context, user_chat_id, game_data)
         table_message = generate_game_table(game_data)
 
         # Обновляем игровой стол в групповом чате
@@ -900,7 +916,7 @@ async def handle_transfer(update: Update, context: CallbackContext, user_chat_id
 
         # Обновляем кнопки действий у всех игроков
         for p in players_order:
-            print(f"Player {p['name']} has status: {p['status']}")
+            # print(f"Player {p['name']} has status: {p['status']}")
             
             # Генерируем клавиатуру с картами игрока
             cards_menu = generate_cards_menu(p['hand'])
@@ -926,14 +942,14 @@ async def handle_transfer(update: Update, context: CallbackContext, user_chat_id
 
 # Функция "Взять"
 async def handle_take(update: Update, context: CallbackContext, user_chat_id, game_data):
-    print("Debug: Inside handle_take")  # Отладочный вывод
+    # print("Debug: Inside handle_take")  # Отладочный вывод
 
     # Извлекаем необходимые данные из game_data
     group_chat_id = game_data['chat_id']
     players_order = game_data['players']
     table_cards = game_data['table_cards']
     deck = game_data['deck']
-
+    print(f"До взятия карт {game_data['table_cards']}")
     # 1. Защищающийся игрок забирает все карты со стола
     defending_player = next((p for p in players_order if p['status'] == 'Defending'), None)
     if defending_player:
@@ -946,21 +962,28 @@ async def handle_take(update: Update, context: CallbackContext, user_chat_id, ga
             player['hand'].append(deck.pop())
 
     # 3. Меняем порядок хода игроков
+    print(f"Порядок хода до взятия {players_order}")
     players_order.append(players_order.pop(0))
     players_order.append(players_order.pop(0))
-
+    print(f"порядок хода после взятия  {players_order}")
     players_order[0]['status'] = 'Attacking'
-    players_order[1]['status'] = 'Defending'
-    for player in players_order[2:]:
-        player['status'] = 'Idle'
+    if len(players_order) > 2:
+        players_order[1]['status'] = 'Defending'
+        for player in players_order[2:]:
+            player['status'] = 'Idle'
+    else:
+        players_order[1]['status'] = 'Defending'
 
+    await check_player_status(update, context, user_chat_id, game_data)
+    
+    print(f"После взятия карт {game_data['table_cards']}")
     table_message = generate_game_table(game_data)
-
+    
     # 4. Обновляем игровой стол и меню карт
     await context.bot.edit_message_text(chat_id=group_chat_id, message_id=game_data['group_message_id'], text=table_message)
 
     for p in players_order:
-        print(f"Player {p['name']} has status: {p['status']}")
+        # print(f"Player {p['name']} has status: {p['status']}")
         
         cards_menu = generate_cards_menu(p['hand'])
         actions_menu = generate_actions_menu(p['status'], table_cards)
@@ -986,7 +1009,7 @@ async def handle_done(update: Update, context: CallbackContext, user_chat_id, ga
     table_cards = game_data['table_cards']
 
 
-    print(game_data)
+    # print(game_data)
     # 1. Очищаем игровой стол
     game_data['table_cards'] = []
 
@@ -1020,6 +1043,7 @@ async def handle_done(update: Update, context: CallbackContext, user_chat_id, ga
     for player in players[2:]:
         player['status'] = 'Idle'
 
+    await check_player_status(update, context, user_chat_id, game_data)
     table_message = generate_game_table(game_data)
 
     # Обновляем игровой стол в групповом чате
@@ -1027,7 +1051,7 @@ async def handle_done(update: Update, context: CallbackContext, user_chat_id, ga
 
     # Обновляем кнопки действий у всех игроков
     for p in players_order:
-        print(f"Player {p['name']} has status: {p['status']}")
+        # print(f"Player {p['name']} has status: {p['status']}")
         
         # Генерируем клавиатуру с картами игрока
         cards_menu = generate_cards_menu(p['hand'])
@@ -1082,6 +1106,34 @@ def can_defend(defending_cards, table_cards, trump_suit):
 
     print("Этими картами можно побиться")  # Отладочный вывод
     return True
+
+
+async def check_player_status(update: Update, context: CallbackContext, user_chat_id, game_data):
+    # Извлекаем необходимые данные из game_data
+    group_chat_id = game_data['chat_id']
+    players = game_data['players']
+    deck = game_data['deck']
+
+    players_to_remove = []
+    for player in players:
+        if not deck and not player['hand']:
+            players_to_remove.append(player)
+            exit_message = f"{player['name']} вышел"
+            # Отправляем сообщение в групповой чат
+            await context.bot.send_message(chat_id=group_chat_id, text=exit_message)
+
+    # Удаляем игрока из списка игроков и его кнопки
+    for player in players_to_remove:
+        players.remove(player)
+        # Удаляем кнопки у игрока, который вышел из игры
+        await context.bot.edit_message_reply_markup(chat_id=player['id'], message_id=player['message_id'], reply_markup=None)
+    
+    # Если остался один игрок
+    if len(players) == 1:
+        loser_message = f"{players[0]['name']} дурак!"
+        await context.bot.send_message(chat_id=group_chat_id, text=loser_message)
+        # Завершаем игру
+        game_data['game_status'] = 'ended'
 
 
 

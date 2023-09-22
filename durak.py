@@ -204,12 +204,15 @@ def generate_cards_menu(player_hand):
 
 #Меню действий у игрока
 def generate_actions_menu(player_status, table_cards=None):
+    
     if player_status == "Attacking":
         buttons = [
             InlineKeyboardButton("Атаковать", callback_data="action_attack")
         ]
     elif player_status == "Defending":
+        
         if table_cards:
+            print("есть карты на столе")
             # Проверяем, есть ли на столе карты защиты
             defend_cards_count = sum(1 for card in table_cards if card['type'] == 'defend')
             attack_cards_count = sum(1 for card in table_cards if card['type'] == 'attack')
@@ -267,8 +270,10 @@ def generate_game_table(game_data):
 
     # Информация о текущем ходе
     current_player = current_order[0]['name']
-    next_player = current_order[1]['name']
-
+    if len(current_order) > 1:
+        next_player = current_order[1]['name']
+    else:
+        next_player = None
     # Собираем все вместе
     table = f"🃏{cards_left} | Козырь: {trump_card} | Ход: {current_player} ➡️ {next_player}\n\n"
     table += "Порядок хода:\n"
@@ -538,11 +543,11 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
     
         # Проверяем, имеют ли все выбранные карты одинаковый ранг
         if not check_cards_same_value(selected_cards):
-            print("Выберите карты одного значения.")
+            await query.answer(text="Выберите карты одного значения.", show_alert=True)
             return
 
         # Если все хорошо, отправляем подсказку пользователю
-        print("Можно атаковать выбранными картами")
+        await query.answer(text="Можно атаковать выбранными картами", show_alert=True)
 
         group_chat_id = context.user_data.get('group_chat_id', None)
         game_data = games_data.get(group_chat_id)
@@ -561,7 +566,7 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
             trump_suit = None  # или другое значение по умолчанию
 
         user_chat_id = query.message.chat_id
-    
+  
         # Вызываем функцию атаки
         await handle_attack(update, context, user_chat_id, game_data)
 
@@ -570,17 +575,21 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
         # Получаем выбранные карты из context.user_data
         selected_cards = context.user_data.get('selected_cards', [])
         
-
         # Преобразуем в словарь
         selected_cards = [{'suit': card_str.split('-')[0], 'rank': card_str.split('-')[1]} for card_str in selected_cards]
         
+        # Если список выбранных карт пуст, выводим сообщение и завершаем функцию
+        if not selected_cards:
+            await query.answer(text="Не выбрано ни одной карты для того чтобы побиться.", show_alert=True)
+            return
+                
         # Проверяем, может ли выбранная карта побить карту на столе
         if not can_defend(selected_cards, table_cards, trump_suit):
-            print("Выбранная карта не может побить карту на столе.")
+            await query.answer(text="Выбранная карта не может побить карту на столе.", show_alert=True)
             return
 
         # Если все хорошо, отправляем подсказку пользователю
-        print("Успешная защита!")
+        await query.answer(text="Успешная защита!", show_alert=True)
 
         # Вызываем функцию защиты
         await handle_defend(update, context, user_chat_id, game_data)
@@ -596,19 +605,24 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
         # Получаем ранги карт, которые уже на столе
         table_card_ranks = [card['card']['rank'] for card in table_cards]
         
+         # Если список выбранных карт пуст, выводим сообщение и завершаем функцию
+        if not selected_cards:
+            await query.answer(text="Не выбрано ни одной карты для того чтобы подкинуть.")
+            return       
+
         # Проверяем, что выбранная карта соответствует одному из рангов карт на столе
         if not any(card['rank'] in table_card_ranks for card in selected_cards):
-            print("Выберите карту, соответствующую рангу карт на столе.")
+            await query.answer(text="Выберите карту, соответствующую рангу карт на столе.")
             return
 
         # Проверяем, что у защищающегося игрока еще есть карты в руках
         defending_player = next((p for p in game_data['players'] if p['status'] == 'Defending'), None)
         if not defending_player or not defending_player['hand']:
-            print("Защищающийся игрок не имеет карт в руках.")
+            await query.answer(text="Защищающийся игрок не имеет карт в руках.")
             return
 
         # Если все хорошо, отправляем подсказку пользователю
-        print("Можно подкинуть выбранную карту")
+        await query.answer(text="Можно подкинуть выбранную карту")
 
         # Вызываем функцию подкидывания
         await handle_throw_in(update, context, user_chat_id, game_data)
@@ -617,7 +631,13 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
     elif query_data == "action_transfer":
         # Получаем выбранные карты из context.user_data
         selected_cards = context.user_data.get('selected_cards', [])
-        
+        print(selected_cards)
+
+        # Если список выбранных карт пуст, выводим сообщение и завершаем функцию
+        if not selected_cards:
+            await query.answer(text="Не выбрано ни одной карты для перевода.", show_alert=True)
+            return
+
         # Преобразуем в словарь
         selected_cards_dicts = [{'suit': card_str.split('-')[0], 'rank': card_str.split('-')[1]} for card_str in selected_cards]
         
@@ -625,7 +645,7 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
         table_card_values = [card['card']['rank'] for card in table_cards]
         for card in selected_cards_dicts:
             if card['rank'] not in table_card_values:
-                print("Выберите карты такого же значения, как и карты на столе.")
+                await query.answer(text="Выберите карты такого же значения, как и карты на столе.")
                 return
 
         # Проверяем, что у следующего по счету игрока достаточно карт
@@ -634,13 +654,14 @@ async def callback_query_handler(update: Update, context: CallbackContext) -> No
         current_player_index = next(i for i, p in enumerate(players_order) if p['id'] == current_player_id)
         next_player = players_order[(current_player_index + 1) % len(players_order)]
         if len(next_player['hand']) < len(table_cards) + len(selected_cards_dicts):
-            print("У следующего игрока недостаточно карт для перевода.")
+            await query.answer(text="У следующего игрока недостаточно карт для перевода.")
             return
 
         # Если все проверки прошли успешно
-        print("Можно перевести выбранными картами")
+        await query.answer(text="Можно перевести выбранными картами")
 
         await handle_transfer(update, context, user_chat_id, game_data)
+
 
     elif query_data == "action_take":
         print("нажимаем кнопку Взять")
@@ -723,7 +744,8 @@ async def handle_attack(update: Update, context: CallbackContext, user_chat_id, 
             if 'message_id' in p:
                 # Обновляем текст сообщения и клавиатуру одновременно
                 await context.bot.edit_message_text(chat_id=p['id'], message_id=p['message_id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
-        print(game_data['table_cards'])
+    context.user_data['selected_cards'] = []
+
 
 # Проверка что все выбранные для атаки имеют одно значение
 def check_cards_same_value(selected_cards):
@@ -802,7 +824,7 @@ async def handle_defend(update: Update, context: CallbackContext, user_chat_id, 
             if 'message_id' in p:
                 # Обновляем текст сообщения и клавиатуру одновременно
                 await context.bot.edit_message_text(chat_id=p['id'], message_id=p['message_id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
-        print(game_data['table_cards'])
+    context.user_data['selected_cards'] = []
 
 # Функция "Подкинуть"
 async def handle_throw_in(update: Update, context: CallbackContext, user_chat_id, game_data):
@@ -856,7 +878,7 @@ async def handle_throw_in(update: Update, context: CallbackContext, user_chat_id
             cards_menu = generate_cards_menu(p['hand'])
             
             # Генерируем клавиатуру с возможными действиями игрока
-            actions_menu = generate_actions_menu(p['status'], table_cards)
+            actions_menu = generate_actions_menu(p['status'], game_data['table_cards'])
             
             # Если есть меню действий, объединяем его с меню карт, иначе используем только меню карт
             if actions_menu:
@@ -871,7 +893,7 @@ async def handle_throw_in(update: Update, context: CallbackContext, user_chat_id
             if 'message_id' in p:
                 # Обновляем текст сообщения и клавиатуру одновременно
                 await context.bot.edit_message_text(chat_id=p['id'], message_id=p['message_id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
-        print(game_data['table_cards'])
+    context.user_data['selected_cards'] = []
 
 # Функция "Перевести"
 async def handle_transfer(update: Update, context: CallbackContext, user_chat_id, game_data):
@@ -922,7 +944,7 @@ async def handle_transfer(update: Update, context: CallbackContext, user_chat_id
             cards_menu = generate_cards_menu(p['hand'])
             
             # Генерируем клавиатуру с возможными действиями игрока
-            actions_menu = generate_actions_menu(p['status'], table_cards)
+            actions_menu = generate_actions_menu(p['status'], game_data['table_cards'])
             
             # Если есть меню действий, объединяем его с меню карт, иначе используем только меню карт
             if actions_menu:
@@ -937,7 +959,7 @@ async def handle_transfer(update: Update, context: CallbackContext, user_chat_id
             if 'message_id' in p:
                 # Обновляем текст сообщения и клавиатуру одновременно
                 await context.bot.edit_message_text(chat_id=p['id'], message_id=p['message_id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
-        print(game_data['table_cards'])
+    context.user_data['selected_cards'] = []
 
 
 # Функция "Взять"
@@ -975,7 +997,7 @@ async def handle_take(update: Update, context: CallbackContext, user_chat_id, ga
         players_order[1]['status'] = 'Defending'
 
     await check_player_status(update, context, user_chat_id, game_data)
-    
+
     print(f"После взятия карт {game_data['table_cards']}")
     table_message = generate_game_table(game_data)
     
@@ -986,7 +1008,7 @@ async def handle_take(update: Update, context: CallbackContext, user_chat_id, ga
         # print(f"Player {p['name']} has status: {p['status']}")
         
         cards_menu = generate_cards_menu(p['hand'])
-        actions_menu = generate_actions_menu(p['status'], table_cards)
+        actions_menu = generate_actions_menu(p['status'], game_data['table_cards'])
         
         if actions_menu:
             combined_menu = cards_menu.inline_keyboard + actions_menu.inline_keyboard
@@ -997,6 +1019,7 @@ async def handle_take(update: Update, context: CallbackContext, user_chat_id, ga
         
         if 'message_id' in p:
             await context.bot.edit_message_text(chat_id=p['id'], message_id=p['message_id'], text=table_message, reply_markup=InlineKeyboardMarkup(combined_menu))
+    context.user_data['selected_cards'] = []
 
 
 
@@ -1057,7 +1080,7 @@ async def handle_done(update: Update, context: CallbackContext, user_chat_id, ga
         cards_menu = generate_cards_menu(p['hand'])
         
         # Генерируем клавиатуру с возможными действиями игрока
-        actions_menu = generate_actions_menu(p['status'], table_cards)
+        actions_menu = generate_actions_menu(p['status'], game_data['table_cards'])
         
         # Если есть меню действий, объединяем его с меню карт, иначе используем только меню карт
         if actions_menu:
@@ -1107,7 +1130,7 @@ def can_defend(defending_cards, table_cards, trump_suit):
     print("Этими картами можно побиться")  # Отладочный вывод
     return True
 
-
+# Проверка, вышел ли игрок из игры при своем действии                   
 async def check_player_status(update: Update, context: CallbackContext, user_chat_id, game_data):
     # Извлекаем необходимые данные из game_data
     group_chat_id = game_data['chat_id']
@@ -1132,8 +1155,13 @@ async def check_player_status(update: Update, context: CallbackContext, user_cha
     if len(players) == 1:
         loser_message = f"{players[0]['name']} дурак!"
         await context.bot.send_message(chat_id=group_chat_id, text=loser_message)
+        
+        # Удаляем кнопки у последнего игрока
+        await context.bot.edit_message_reply_markup(chat_id=players[0]['id'], message_id=players[0]['message_id'], reply_markup=None)
+        
         # Завершаем игру
         game_data['game_status'] = 'ended'
+
 
 
 
